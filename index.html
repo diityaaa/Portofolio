@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3D Text Galaxy Style</title>
+  <title>3D Text Galaxy Style + Model</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: black; }
     canvas { display: block; }
@@ -15,7 +16,7 @@
 </head>
 <body>
   <script>
-    let scene, camera, renderer, textMesh, controls, stars;
+    let scene, camera, renderer, textMesh, controls, stars, model;
 
     function init() {
       // Scene & Kamera
@@ -39,7 +40,7 @@
       // Load Font dan bikin text
       const loader = new THREE.FontLoader();
       loader.load("https://threejs.org/examples/fonts/helvetiker_regular.typeface.json", function (font) {
-        const textGeometry = new THREE.TextGeometry("Bima Sakti Aditya", {
+        const textGeometry = new THREE.TextGeometry("", {
           font: font,
           size: 1,
           height: 0.3,
@@ -57,7 +58,8 @@
         });
 
         textMesh = new THREE.Mesh(textGeometry, textMaterial);
-        textGeometry.center(); // biar posisi text pas di tengah
+        textGeometry.center();
+        textMesh.position.y = 2; // text agak ke atas biar ga nabrak model
         scene.add(textMesh);
       });
 
@@ -67,7 +69,7 @@
       const starPositions = new Float32Array(starCount * 3);
 
       for (let i = 0; i < starCount * 3; i++) {
-        starPositions[i] = (Math.random() - 0.5) * 400; // sebaran lebih luas
+        starPositions[i] = (Math.random() - 0.5) * 400;
       }
 
       starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
@@ -82,6 +84,17 @@
 
       stars = new THREE.Points(starGeometry, starMaterial);
       scene.add(stars);
+
+      // Load Model 3D (format .glb / .gltf)
+      const gltfLoader = new THREE.GLTFLoader();
+      gltfLoader.load('keju.glb', function(gltf) {
+        model = gltf.scene;
+        model.scale.set(2, 2, 2); // atur ukuran model
+        model.position.set(0, -1, 0); // posisi model
+        scene.add(model);
+      }, undefined, function(error) {
+        console.error('Error loading model:', error);
+      });
 
       // Kontrol kamera
       controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -104,13 +117,15 @@
     function animate() {
       requestAnimationFrame(animate);
 
-      // Animasi rotasi text kalau sudah ada
       if (textMesh) {
-        textMesh.rotation.y += 0.005;
+        textMesh.rotation.y += 0.0005;
       }
 
-      // Rotasi bintang
-      stars.rotation.y += 0.0005;
+      if (model) {
+        model.rotation.y += 0.001; // biar model muter pelan
+      }
+
+      stars.rotation.y += 0.00005;
 
       controls.update();
       renderer.render(scene, camera);
