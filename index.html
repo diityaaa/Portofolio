@@ -41,7 +41,6 @@
   // === CONFIG MODELS ===
   const MODELS = [
     { path: "Space_rocket.glb", scale: [1,1,1], position: [0, -5, 0], rotation: [0,0,0], autoRotate: true },
-    { path: "Castle Low_Poly.glb", scale: [2,2,2], position: [5, -5, 0], rotation: [0,1,0], autoRotate: false },
   ];
 
   let scene, camera, renderer, controls, stars;
@@ -50,24 +49,23 @@
 
   // === Keyboard Control Vars ===
   let keys = {};
-
   document.addEventListener("keydown", (e) => { keys[e.code] = true; });
   document.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
   function keyboardControls() {
-    const speed = 0.2; // kecepatan gerak kamera
-    if (keys["KeyW"]) camera.position.z -= speed; // maju
-    if (keys["KeyS"]) camera.position.z += speed; // mundur
-    if (keys["KeyA"]) camera.position.x -= speed; // kiri
-    if (keys["KeyD"]) camera.position.x += speed; // kanan
-    if (keys["KeyQ"]) camera.position.y -= speed; // turun
-    if (keys["KeyE"]) camera.position.y += speed; // naik
+    const speed = 0.2;
+    if (keys["KeyW"]) camera.position.z -= speed;
+    if (keys["KeyS"]) camera.position.z += speed;
+    if (keys["KeyA"]) camera.position.x -= speed;
+    if (keys["KeyD"]) camera.position.x += speed;
+    if (keys["KeyQ"]) camera.position.y -= speed;
+    if (keys["KeyE"]) camera.position.y += speed;
   }
 
   function init() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    camera.position.set(60, 50, 50);
+    camera.position.set(0, 0, 15);
 
     renderer = new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -93,11 +91,21 @@
     TEXTS.forEach(t => loadText(t));
     MODELS.forEach(m => loadModel(m));
 
+    // === Load Foto Profil ===
+    const loader = new THREE.TextureLoader();
+    loader.load('BimaJPG.jpg', function(texture){
+        const geometry = new THREE.PlaneGeometry(5,5);
+        const material = new THREE.MeshBasicMaterial({ map: texture });
+        const plane = new THREE.Mesh(geometry, material);
+        plane.position.set(0, -12, 0); // posisi kanan rocket
+        scene.add(plane);
+    });
+
     // Controls
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.enablePan = true; // aktifin pan juga
+    controls.enablePan = true;
     controls.minDistance = 0;
     controls.maxDistance = 500;
 
@@ -116,19 +124,15 @@
         bevelSize: 0.03,
         bevelSegments: 3
       });
-
       let mat = new THREE.MeshStandardMaterial({ color: cfg.color || 0xffffff, metalness: 0.8, roughness: 0.3 });
-      
       const textMesh = new THREE.Mesh(textGeometry, mat);
       textGeometry.center();
       textMesh.position.set(...(cfg.position || [0,0,0]));
       textMesh.rotation.set(...(cfg.rotation || [0,0,0]));
-
       if(cfg.glow){
         const glow = new THREE.MeshBasicMaterial({ color: cfg.color || 0xffffff });
         textMesh.material = [mat, glow];
       }
-
       scene.add(textMesh);
     });
   }
@@ -140,7 +144,6 @@
       model.position.set(...(cfg.position || [0,0,0]));
       model.rotation.set(...(cfg.rotation || [0,0,0]));
       scene.add(model);
-
       if(cfg.autoRotate){
         function rotate(){
           requestAnimationFrame(rotate);
@@ -159,7 +162,7 @@
 
   function animate(){
     requestAnimationFrame(animate);
-    keyboardControls(); // update kamera pake WASD + QE
+    keyboardControls();
     stars.rotation.y += 0.00005;
     controls.update();
     renderer.render(scene,camera);
