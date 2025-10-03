@@ -160,6 +160,7 @@
         scene.add(rocket);
         rocketCollider.setFromObject(rocket);
         rocket.userData.baseQuaternion = rocket.quaternion.clone();
+        rocket.userData.lastQuaternion = rocket.userData.baseQuaternion.clone();
 
         const thrusterGeometry = new THREE.ConeGeometry(1.4, 4.5, 16, 1, true);
         const thrusterMaterial = new THREE.MeshStandardMaterial({
@@ -378,14 +379,19 @@
       directionHelper.set(joystickInput.x, joystickInput.y, 0);
     }
 
-    if (directionHelper.lengthSq() > 0.000001 && rocket.userData.baseQuaternion) {
-      directionHelper.normalize();
-      const rotationAngle = Math.atan2(-directionHelper.x, directionHelper.y);
-      rotationOffset.setFromAxisAngle(rotationAxisZ, rotationAngle);
-      targetQuaternion.copy(rocket.userData.baseQuaternion).multiply(rotationOffset);
-      rocket.quaternion.slerp(targetQuaternion, 0.2);
-    } else if (rocket.userData.baseQuaternion) {
-      rocket.quaternion.slerp(rocket.userData.baseQuaternion, 0.12);
+    if (rocket.userData.baseQuaternion) {
+      if (directionHelper.lengthSq() > 0.000001) {
+        directionHelper.normalize();
+        const rotationAngle = Math.atan2(-directionHelper.x, directionHelper.y);
+        rotationOffset.setFromAxisAngle(rotationAxisZ, rotationAngle);
+        targetQuaternion.copy(rocket.userData.baseQuaternion).multiply(rotationOffset);
+        if (rocket.userData.lastQuaternion) {
+          rocket.userData.lastQuaternion.copy(targetQuaternion);
+        }
+        rocket.quaternion.slerp(targetQuaternion, 0.2);
+      } else if (rocket.userData.lastQuaternion) {
+        rocket.quaternion.slerp(rocket.userData.lastQuaternion, 0.12);
+      }
     }
 
     rocket.position.z = 0;
@@ -479,3 +485,4 @@
 </script>
 </body>
 </html>
+
