@@ -67,7 +67,7 @@
   </div>
 </div>
 <script>
-  let scene, camera, renderer, rocket, stars;
+  let scene, camera, renderer, rocket, stars, thruster, thrusterLight;
   const gltfLoader = new THREE.GLTFLoader();
   const keys = {};
   const rocketVelocity = new THREE.Vector3();
@@ -160,6 +160,25 @@
         scene.add(rocket);
         rocketCollider.setFromObject(rocket);
         rocket.userData.baseQuaternion = rocket.quaternion.clone();
+
+        const thrusterGeometry = new THREE.ConeGeometry(1.4, 4.5, 16, 1, true);
+        const thrusterMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffa64d,
+          emissive: 0xff5b0b,
+          emissiveIntensity: 1.2,
+          transparent: true,
+          opacity: 0.6,
+          side: THREE.DoubleSide
+        });
+        thruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        thruster.rotation.x = Math.PI;
+        thruster.position.set(0, -5.4, 0);
+        rocket.add(thruster);
+        rocket.userData.thrusterMaterial = thrusterMaterial;
+
+        thrusterLight = new THREE.PointLight(0xff9551, 1.1, 55, 2);
+        thrusterLight.position.set(0, -4.5, 0);
+        rocket.add(thrusterLight);
       },
       undefined,
       error => {
@@ -328,6 +347,26 @@
       }
     }
 
+    if (thruster && rocket.userData.thrusterMaterial && thrusterLight) {
+      const velocityStrength = THREE.MathUtils.clamp(rocketVelocity.length() / maxAscendSpeed, 0, 1);
+      const inputStrength = Math.max(0, verticalInput);
+      const horizontalStrength = Math.abs(horizontalInput) * 0.6;
+      const flameStrength = THREE.MathUtils.clamp(Math.max(inputStrength, velocityStrength * 0.75, horizontalStrength), 0, 1);
+      const time = performance.now() * 0.002;
+      const flicker = Math.sin(time * 7.5) * 0.1 + Math.sin(time * 13.0) * 0.05;
+      const scaleY = 0.8 + flameStrength * 1.1 + flicker;
+      const scaleX = 0.6 + flameStrength * 0.4;
+      thruster.scale.set(scaleX, scaleY, scaleX);
+      thruster.position.y = -5.4 - flameStrength * 1.2;
+      const material = rocket.userData.thrusterMaterial;
+      material.opacity = 0.35 + flameStrength * 0.5;
+      material.emissiveIntensity = 0.8 + flameStrength * 1.8;
+      thruster.visible = flameStrength > 0.05;
+      thrusterLight.intensity = 0.5 + flameStrength * 2.2;
+      thrusterLight.distance = 35 + flameStrength * 28;
+      thrusterLight.position.y = -4.6 - flameStrength * 1.0;
+    }
+
     rocket.position.add(rocketVelocity);
     rocketCollider.setFromObject(rocket);
     isGrounded = false;
@@ -351,11 +390,6 @@
 
     rocket.position.z = 0;
 
-    if (rocket.position.y < -120) {
-      rocket.position.set(-40, 10, 0);
-      rocketVelocity.set(0, 0, 0);
-      rocketCollider.setFromObject(rocket);
-    }
   }
 
   function resolveCollisions() {
