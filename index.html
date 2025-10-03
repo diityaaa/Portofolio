@@ -6,6 +6,15 @@
   <title>Roket Platformer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/inflate.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/PLYLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: black; font-family: 'Segoe UI', sans-serif; color: #fff; }
     canvas { display: block; }
@@ -69,6 +78,32 @@
 <script>
   let scene, camera, renderer, rocket, stars, thruster, thrusterLight;
   const gltfLoader = new THREE.GLTFLoader();
+  const textureLoader = new THREE.TextureLoader();
+  const fontLoader = new THREE.FontLoader();
+  const fontCache = new Map();
+  const defaultFontUrl = "https://threejs.org/examples/fonts/helvetiker_regular.typeface.json";
+  const loaderCache = {};
+
+  const modelConfigs = [
+    // type optional, otomatis ditebak dari ekstensi file kalau tidak diisi
+    // Example: { url: "models/tree.glb", type: "gltf", position: { x: 15, y: -8, z: 0 }, scale: 2, center: true, collidable: true, reactive: true }
+    // Example: { url: "models/car.obj", type: "obj", mtlUrl: "models/car.mtl", position: { x: -35, y: -12, z: 0 }, scale: 1.5, collidable: true, reactive: true }
+    // Example: { url: "models/character.fbx", type: "fbx", position: { x: 45, y: -5, z: 0 }, scale: 0.1, collidable: true, reactive: true }
+  ];
+
+  const imageConfigs = [
+    { url: "BimaJPG.jpg", position: { x: 20, y: 12, z: 0 }, width: 15 }
+  ];
+
+  const textConfigs = [
+    // Example: { text: "Hello", fontUrl: "fonts/helvetiker_regular.typeface.json", position: { x: -10, y: 25, z: 0 }, size: 6, height: 1, color: 0xffd166, collidable: true, reactive: true }
+    { text: "Hello Saya Bima Sakti Aditya", position: { x: 0, y: 0, z: 0 }, color: "#ffd166" }
+  ];
+
+  const boxConfigs = [
+    { size: { x: 20, y: 6, z: 10 }, position: { x: 5, y: -20, z: 0 }, color: 0x2d9bf0, collidable: true, reactive: true }
+  ];
+
   const keys = {};
   const rocketVelocity = new THREE.Vector3();
   const rocketCollider = new THREE.Box3();
@@ -147,6 +182,7 @@
 
     createStars();
     initJoystick();
+    spawnConfiguredAssets();
 
     gltfLoader.load(
       "Space_rocket.glb",
@@ -196,6 +232,521 @@
     const box = new THREE.Box3().setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
     model.position.sub(center);
+  }
+
+  function applyTransformFromConfig(object, config) {
+    if (!config || !object) return;
+    if (config.position) {
+      const position = config.position;
+      object.position.set(
+        position.x !== undefined ? position.x : object.position.x,
+        position.y !== undefined ? position.y : object.position.y,
+        position.z !== undefined ? position.z : object.position.z
+      );
+    }
+    if (config.rotationRadians) {
+      const rotationRadians = config.rotationRadians;
+      object.rotation.set(
+        rotationRadians.x !== undefined ? rotationRadians.x : object.rotation.x,
+        rotationRadians.y !== undefined ? rotationRadians.y : object.rotation.y,
+        rotationRadians.z !== undefined ? rotationRadians.z : object.rotation.z
+      );
+    } else if (config.rotation) {
+      const rotation = config.rotation;
+      const rx = rotation.x !== undefined ? THREE.MathUtils.degToRad(rotation.x) : object.rotation.x;
+      const ry = rotation.y !== undefined ? THREE.MathUtils.degToRad(rotation.y) : object.rotation.y;
+      const rz = rotation.z !== undefined ? THREE.MathUtils.degToRad(rotation.z) : object.rotation.z;
+      object.rotation.set(rx, ry, rz);
+    }
+    if (config.scale !== undefined) {
+      if (typeof config.scale === "number") {
+        object.scale.setScalar(config.scale);
+      } else {
+        const scale = config.scale;
+        object.scale.set(
+          scale.x !== undefined ? scale.x : object.scale.x,
+          scale.y !== undefined ? scale.y : object.scale.y,
+          scale.z !== undefined ? scale.z : object.scale.z
+        );
+      }
+    }
+  }
+
+  function registerStaticColliderIfNeeded(object, config) {
+    if (!config || !config.collidable) return;
+    const collider = new THREE.Box3().setFromObject(object);
+    const entry = {
+      object,
+      collider,
+      config,
+      reactive: !!config.reactive,
+      velocity: new THREE.Vector3(),
+      angularVelocity: new THREE.Vector3()
+    };
+    platforms.push(entry);
+  }
+
+  function applyImpulseToReactivePlatform(platform, impactVelocity, axis, direction) {
+    if (!platform || !platform.reactive) return;
+    const config = platform.config || {};
+    const impulseStrength = config.reactiveImpulse !== undefined ? config.reactiveImpulse : 0.35;
+    const spinStrength = config.reactiveSpin !== undefined ? config.reactiveSpin : 0.03;
+    const maxLinearSpeed = config.reactiveMaxSpeed !== undefined ? config.reactiveMaxSpeed : 2.2;
+    const maxSpin = config.reactiveMaxSpin !== undefined ? config.reactiveMaxSpin : 0.12;
+
+    if (impactVelocity && impactVelocity.lengthSq() > 0) {
+      platform.velocity.addScaledVector(impactVelocity, impulseStrength);
+    }
+
+    if (platform.velocity.lengthSq() < 0.0001) {
+      if (axis === "x") {
+        platform.velocity.x += (direction || 0) * impulseStrength * 0.6;
+      } else if (axis === "y") {
+        platform.velocity.y += (direction || 0) * impulseStrength * 0.6;
+      }
+    }
+
+    if (axis === "x") {
+      platform.angularVelocity.z += (-(impactVelocity ? impactVelocity.y : 0) + (direction || 0) * 0.3) * spinStrength;
+    } else if (axis === "y") {
+      platform.angularVelocity.z += ((impactVelocity ? impactVelocity.x : 0) - (direction || 0) * 0.3) * spinStrength;
+    } else {
+      platform.angularVelocity.z += (Math.random() - 0.5) * spinStrength;
+    }
+
+    if (maxLinearSpeed > 0) {
+      const maxLinearSq = maxLinearSpeed * maxLinearSpeed;
+      if (platform.velocity.lengthSq() > maxLinearSq) {
+        platform.velocity.setLength(maxLinearSpeed);
+      }
+    }
+
+    platform.angularVelocity.z = THREE.MathUtils.clamp(platform.angularVelocity.z, -maxSpin, maxSpin);
+  }
+
+  function updateReactivePlatforms() {
+    for (let i = 0; i < platforms.length; i++) {
+      const platform = platforms[i];
+      if (!platform.reactive || !platform.object) continue;
+      const config = platform.config || {};
+      const damping = config.reactiveDamping !== undefined ? THREE.MathUtils.clamp(config.reactiveDamping, 0, 0.999) : 0.9;
+      const angularDamping = config.reactiveAngularDamping !== undefined ? THREE.MathUtils.clamp(config.reactiveAngularDamping, 0, 0.999) : 0.92;
+
+      if (platform.velocity.lengthSq() > 0) {
+        platform.velocity.multiplyScalar(damping);
+        if (platform.velocity.lengthSq() < 0.000001) {
+          platform.velocity.set(0, 0, 0);
+        } else {
+          platform.object.position.add(platform.velocity);
+        }
+      }
+
+      if (platform.angularVelocity.lengthSq() > 0) {
+        platform.angularVelocity.multiplyScalar(angularDamping);
+        if (platform.angularVelocity.lengthSq() < 0.000001) {
+          platform.angularVelocity.set(0, 0, 0);
+        } else {
+          platform.object.rotation.x += platform.angularVelocity.x;
+          platform.object.rotation.y += platform.angularVelocity.y;
+          platform.object.rotation.z += platform.angularVelocity.z;
+        }
+      }
+
+      if (platform.velocity.lengthSq() > 0 || platform.angularVelocity.lengthSq() > 0) {
+        platform.collider.setFromObject(platform.object);
+      }
+    }
+  }
+  function inferModelType(config) {
+    if (!config) return "";
+    if (config.type) return String(config.type).toLowerCase();
+    if (!config.url) return "";
+    const sanitized = config.url.split('#')[0].split('?')[0];
+    const match = sanitized.match(/\.([a-z0-9]+)$/i);
+    return match ? match[1].toLowerCase() : "";
+  }
+
+  function ensureLoaderAvailable(constructor, loaderName) {
+    if (typeof constructor !== "function") {
+      console.error(`${loaderName} is not available. Pastikan script loader-nya sudah dimuat.`);
+      return null;
+    }
+    return constructor;
+  }
+
+  function getLoaderForModelType(type) {
+    switch (type) {
+      case "gltf":
+      case "glb":
+        return gltfLoader;
+      case "obj":
+        if (!ensureLoaderAvailable(THREE.OBJLoader, "THREE.OBJLoader")) return null;
+        return loaderCache.obj || (loaderCache.obj = new THREE.OBJLoader());
+      case "fbx":
+        if (!ensureLoaderAvailable(THREE.FBXLoader, "THREE.FBXLoader")) return null;
+        return loaderCache.fbx || (loaderCache.fbx = new THREE.FBXLoader());
+      case "stl":
+        if (!ensureLoaderAvailable(THREE.STLLoader, "THREE.STLLoader")) return null;
+        return loaderCache.stl || (loaderCache.stl = new THREE.STLLoader());
+      case "ply":
+        if (!ensureLoaderAvailable(THREE.PLYLoader, "THREE.PLYLoader")) return null;
+        return loaderCache.ply || (loaderCache.ply = new THREE.PLYLoader());
+      case "dae":
+      case "collada":
+        if (!ensureLoaderAvailable(THREE.ColladaLoader, "THREE.ColladaLoader")) return null;
+        return loaderCache.dae || (loaderCache.dae = new THREE.ColladaLoader());
+      default:
+        return null;
+    }
+  }
+
+  function applyShadowSettings(target, config) {
+    const cast = config.castShadow;
+    const receive = config.receiveShadow;
+    if (cast === undefined && receive === undefined) return;
+    const apply = object => {
+      if (object.isMesh || object.isPoints || object.isLine) {
+        if (cast !== undefined) object.castShadow = !!cast;
+        if (receive !== undefined) object.receiveShadow = !!receive;
+      }
+    };
+    if (target.traverse) {
+      target.traverse(apply);
+    } else {
+      apply(target);
+    }
+  }
+
+  function createMaterialFromConfig(config, geometry) {
+    if (config.material instanceof THREE.Material) {
+      return config.material;
+    }
+    const materialOptions = Object.assign(
+      {
+        color: config.color !== undefined ? config.color : 0xffffff,
+        metalness: config.metalness !== undefined ? config.metalness : 0.2,
+        roughness: config.roughness !== undefined ? config.roughness : 0.65,
+        flatShading: !!config.flatShading
+      },
+      config.materialOptions || {}
+    );
+    if (geometry && geometry.getAttribute && geometry.getAttribute('color')) {
+      materialOptions.vertexColors = true;
+    }
+    if (config.wireframe !== undefined) {
+      materialOptions.wireframe = !!config.wireframe;
+    }
+    return new THREE.MeshStandardMaterial(materialOptions);
+  }
+
+  function createMeshFromGeometry(geometry, config) {
+    if (!geometry) return null;
+    if (geometry.computeVertexNormals) geometry.computeVertexNormals();
+    if (config.center) {
+      if (geometry.center) {
+        geometry.center();
+      }
+    }
+    const material = createMaterialFromConfig(config, geometry);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = config.castShadow !== undefined ? !!config.castShadow : true;
+    if (config.receiveShadow !== undefined) {
+      mesh.receiveShadow = !!config.receiveShadow;
+    }
+    return mesh;
+  }
+
+  function buildObjectFromResult(type, result, config) {
+    switch (type) {
+      case "gltf":
+      case "glb": {
+        const scene = result && (result.scene || (result.scenes && result.scenes[0]));
+        if (!scene) return null;
+        return { object: scene, raw: result };
+      }
+      case "obj":
+      case "fbx": {
+        return { object: result, raw: result };
+      }
+      case "dae":
+      case "collada": {
+        const scene = result && (result.scene || result.scenes && result.scenes[0]);
+        if (!scene) return null;
+        return { object: scene, raw: result };
+      }
+      case "stl": {
+        const geometry = result && (result.isBufferGeometry ? result : result.geometry);
+        const mesh = createMeshFromGeometry(geometry, config);
+        return mesh ? { object: mesh, raw: result, skipCenter: true } : null;
+      }
+      case "ply": {
+        const geometry = result && (result.isBufferGeometry ? result : result.geometry);
+        const mesh = createMeshFromGeometry(geometry, config);
+        return mesh ? { object: mesh, raw: result, skipCenter: true } : null;
+      }
+      default:
+        console.warn(`Tipe model "${type}" belum didukung untuk ${config.url}`);
+        return null;
+    }
+  }
+
+  function finalizeLoadedModel(model, config, rawResult, options = {}) {
+    if (!model) return;
+    if (config.name) {
+      model.name = config.name;
+    }
+    applyShadowSettings(model, config);
+    if (config.center && !options.skipCenter) {
+      centerModel(model);
+    }
+    applyTransformFromConfig(model, config);
+    if (config.lookAt) {
+      const lookAt = config.lookAt;
+      model.lookAt(
+        lookAt.x !== undefined ? lookAt.x : 0,
+        lookAt.y !== undefined ? lookAt.y : 0,
+        lookAt.z !== undefined ? lookAt.z : 0
+      );
+    }
+    scene.add(model);
+    registerStaticColliderIfNeeded(model, config);
+    if (typeof config.onLoad === "function") {
+      config.onLoad(model, rawResult);
+    }
+  }
+
+  function loadConfiguredModels() {
+    modelConfigs.forEach(config => {
+      if (!config || !config.url) return;
+      const type = inferModelType(config);
+      if (!type) {
+        console.warn(`Gagal menebak tipe model untuk ${config.url}`);
+        return;
+      }
+      const loader = getLoaderForModelType(type);
+      if (!loader || !loader.load) {
+        console.warn(`Loader untuk tipe "${type}" belum tersedia.`, config.url);
+        return;
+      }
+
+      const previousResourcePath = loader.resourcePath !== undefined ? loader.resourcePath : undefined;
+      const previousPath = loader.path !== undefined ? loader.path : undefined;
+
+      const resetLoaderPaths = () => {
+        if (config.resourcePath && loader.setResourcePath) {
+          loader.setResourcePath(previousResourcePath || "");
+        }
+        if (config.path && loader.setPath) {
+          loader.setPath(previousPath || "");
+        }
+        if (type === "obj" && config.mtlUrl && loader.setMaterials) {
+          loader.setMaterials(null);
+        }
+      };
+
+      const handleSuccess = result => {
+        resetLoaderPaths();
+        const built = buildObjectFromResult(type, result, config);
+        if (!built || !built.object) return;
+        finalizeLoadedModel(built.object, config, built.raw, { skipCenter: built.skipCenter });
+      };
+
+      const handleError = error => {
+        resetLoaderPaths();
+        console.error(`Gagal load model (${type}):`, config.url, error);
+        if (typeof config.onError === "function") {
+          config.onError(error);
+        }
+      };
+
+      if (type === "obj" && config.mtlUrl && ensureLoaderAvailable(THREE.MTLLoader, "THREE.MTLLoader")) {
+        const mtlLoader = loaderCache.mtl || (loaderCache.mtl = new THREE.MTLLoader());
+        mtlLoader.load(
+          config.mtlUrl,
+          materials => {
+            materials.preload();
+            loader.setMaterials(materials);
+            loader.load(config.url, handleSuccess, config.onProgress, handleError);
+          },
+          undefined,
+          mtlError => {
+            console.error("Gagal load MTL:", config.mtlUrl, mtlError);
+            loader.load(config.url, handleSuccess, config.onProgress, handleError);
+          }
+        );
+        return;
+      }
+
+      if (config.resourcePath && loader.setResourcePath) {
+        loader.setResourcePath(config.resourcePath);
+      }
+      if (config.path && loader.setPath) {
+        loader.setPath(config.path);
+      }
+
+      loader.load(config.url, handleSuccess, config.onProgress, handleError);
+    });
+  }
+  function loadConfiguredImages() {
+    imageConfigs.forEach(config => {
+      textureLoader.load(
+        config.url,
+        texture => {
+          const defaultWidth = 14;
+          const width = config.width !== undefined ? config.width : defaultWidth;
+          let height;
+          if (config.height !== undefined) {
+            height = config.height;
+          } else if (texture.image && texture.image.width) {
+            const ratio = texture.image.height / texture.image.width;
+            height = width * ratio;
+          } else {
+            height = defaultWidth;
+          }
+          const geometry = new THREE.PlaneGeometry(width, height);
+          const materialOptions = {
+            map: texture,
+            transparent: config.transparent !== undefined ? config.transparent : true,
+            side: THREE.DoubleSide
+          };
+          if (config.opacity !== undefined) {
+            materialOptions.opacity = config.opacity;
+            materialOptions.transparent = true;
+          }
+          const material = new THREE.MeshBasicMaterial(materialOptions);
+          const mesh = new THREE.Mesh(geometry, material);
+          applyTransformFromConfig(mesh, config);
+          scene.add(mesh);
+          registerStaticColliderIfNeeded(mesh, config);
+        },
+        undefined,
+        error => {
+          console.error("Failed to load image:", config.url, error);
+        }
+      );
+    });
+  }
+
+  function loadFont(url, onLoad, onError) {
+    if (fontCache.has(url)) {
+      onLoad(fontCache.get(url));
+      return;
+    }
+    fontLoader.load(
+      url,
+      font => {
+        fontCache.set(url, font);
+        onLoad(font);
+      },
+      undefined,
+      error => {
+        console.error("Failed to load font:", url, error);
+        if (onError) onError(error);
+      }
+    );
+  }
+
+  function createTextMeshFromConfig(font, config) {
+    const text = config.text || "";
+    const size = config.size !== undefined ? config.size : 6;
+    const height = config.height !== undefined ? config.height : 1.2;
+    const curveSegments = config.curveSegments !== undefined ? config.curveSegments : 8;
+    const bevelEnabled = !!config.bevelEnabled;
+    const bevelThickness = config.bevelThickness !== undefined ? config.bevelThickness : 0.2;
+    const bevelSize = config.bevelSize !== undefined ? config.bevelSize : 0.3;
+    const bevelOffset = config.bevelOffset !== undefined ? config.bevelOffset : 0;
+    const bevelSegments = config.bevelSegments !== undefined ? config.bevelSegments : 4;
+
+    const geometry = new THREE.TextGeometry(text, {
+      font,
+      size,
+      height,
+      curveSegments,
+      bevelEnabled,
+      bevelThickness,
+      bevelSize,
+      bevelOffset,
+      bevelSegments
+    });
+
+    geometry.computeBoundingBox();
+    const boundingBox = geometry.boundingBox;
+    if (config.center || config.align === "center") {
+      const center = boundingBox.getCenter(new THREE.Vector3());
+      geometry.translate(-center.x, -center.y, -center.z);
+    } else if (config.align === "middle") {
+      const centerX = (boundingBox.max.x + boundingBox.min.x) * 0.5;
+      geometry.translate(-centerX, 0, 0);
+    }
+
+    const materialOptions = {
+      color: config.color !== undefined ? config.color : 0xffffff,
+      metalness: config.metalness !== undefined ? config.metalness : 0.4,
+      roughness: config.roughness !== undefined ? config.roughness : 0.35
+    };
+    if (config.opacity !== undefined) {
+      materialOptions.transparent = true;
+      materialOptions.opacity = config.opacity;
+    }
+
+    const material = new THREE.MeshStandardMaterial(materialOptions);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = config.castShadow !== undefined ? config.castShadow : true;
+    mesh.receiveShadow = !!config.receiveShadow;
+
+    return mesh;
+  }
+
+  function loadConfiguredTexts() {
+    textConfigs.forEach(config => {
+      const fontUrl = config.fontUrl || defaultFontUrl;
+      loadFont(
+        fontUrl,
+        font => {
+          if (!font) return;
+          const mesh = createTextMeshFromConfig(font, config);
+          applyTransformFromConfig(mesh, config);
+          scene.add(mesh);
+          registerStaticColliderIfNeeded(mesh, config);
+          if (typeof config.onLoad === "function") {
+            config.onLoad(mesh, font);
+          }
+        }
+      );
+    });
+  }
+
+  function loadConfiguredBoxes() {
+    boxConfigs.forEach(config => {
+      const size = config.size || {};
+      const width = size.x !== undefined ? size.x : (size.width !== undefined ? size.width : 12);
+      const height = size.y !== undefined ? size.y : (size.height !== undefined ? size.height : 12);
+      const depth = size.z !== undefined ? size.z : (size.depth !== undefined ? size.depth : 12);
+      const geometry = new THREE.BoxGeometry(width, height, depth);
+      const materialOptions = {
+        color: config.color !== undefined ? config.color : 0x4dc6ff,
+        metalness: config.metalness !== undefined ? config.metalness : 0.2,
+        roughness: config.roughness !== undefined ? config.roughness : 0.7
+      };
+      if (config.opacity !== undefined) {
+        materialOptions.transparent = true;
+        materialOptions.opacity = config.opacity;
+      }
+      const material = new THREE.MeshStandardMaterial(materialOptions);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = !!config.castShadow;
+      mesh.receiveShadow = !!config.receiveShadow;
+      applyTransformFromConfig(mesh, config);
+      scene.add(mesh);
+      registerStaticColliderIfNeeded(mesh, config);
+    });
+  }
+
+  function spawnConfiguredAssets() {
+    loadConfiguredModels();
+    loadConfiguredImages();
+    loadConfiguredTexts();
+    loadConfiguredBoxes();
   }
 
   function createStars() {
@@ -299,6 +850,8 @@
 
   function updateRocket() {
     if (!rocket) return;
+
+    updateReactivePlatforms();
 
     rocketPreviousPosition.copy(rocket.position);
 
@@ -418,19 +971,32 @@
       const resolveX = Math.min(overlapRight, overlapLeft);
       const resolveY = Math.min(overlapUp, overlapDown);
 
+      const impactVelocity = rocketVelocity.clone();
+
       if (resolveX < resolveY) {
         const rocketCenterX = (rocketCollider.min.x + rocketCollider.max.x) * 0.5;
         const platformCenterX = (collider.min.x + collider.max.x) * 0.5;
-        if (deltaX > 0 || (deltaX === 0 && rocketCenterX >= platformCenterX)) {
+        const hittingFromRight = deltaX > 0 || (deltaX === 0 && rocketCenterX >= platformCenterX);
+        const direction = hittingFromRight ? 1 : -1;
+
+        if (hittingFromRight) {
           rocket.position.x -= resolveX;
         } else {
           rocket.position.x += resolveX;
         }
+
+        if (platform.reactive) {
+          applyImpulseToReactivePlatform(platform, impactVelocity, "x", direction);
+        }
+
         rocketVelocity.x = 0;
       } else {
         const rocketCenterY = (rocketCollider.min.y + rocketCollider.max.y) * 0.5;
         const platformCenterY = (collider.min.y + collider.max.y) * 0.5;
-        if (deltaY > 0 || (deltaY === 0 && rocketCenterY >= platformCenterY)) {
+        const hittingFromAbove = deltaY > 0 || (deltaY === 0 && rocketCenterY >= platformCenterY);
+        const direction = hittingFromAbove ? 1 : -1;
+
+        if (hittingFromAbove) {
           rocket.position.y -= resolveY;
           if (rocketVelocity.y > 0) rocketVelocity.y = 0;
         } else {
@@ -438,11 +1004,15 @@
           rocketVelocity.y = 0;
           isGrounded = true;
         }
+
+        if (platform.reactive) {
+          applyImpulseToReactivePlatform(platform, impactVelocity, "y", direction);
+        }
       }
+
       rocketCollider.setFromObject(rocket);
     }
   }
-
   function updateCamera() {
     if (!rocket) return;
 
@@ -485,4 +1055,3 @@
 </script>
 </body>
 </html>
-
