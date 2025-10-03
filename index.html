@@ -26,7 +26,8 @@
     .joystick {
       position: fixed;
       bottom: 30px;
-      left: 30px;
+      right: 30px;
+      left: auto;
       width: 140px;
       height: 140px;
       touch-action: none;
@@ -56,11 +57,6 @@
       transition: transform 0.12s ease;
     }
 
-    @media (hover: hover) and (pointer: fine) {
-      .joystick {
-        display: none;
-      }
-    }
   </style>
 </head>
 <body>
