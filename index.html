@@ -66,6 +66,10 @@
       transition: transform 0.12s ease;
     }
 
+    .joystick.is-hidden {
+      display: none;
+    }
+
   </style>
 </head>
 <body>
@@ -119,6 +123,8 @@
   let joystickPointerId = null;
   let joystickBaseElement = null;
   let joystickHandleElement = null;
+  let joystickZone = null;
+  let joystickEnabled = false;
 
   let isGrounded = false;
 
@@ -281,7 +287,8 @@
       config,
       reactive: !!config.reactive,
       velocity: new THREE.Vector3(),
-      angularVelocity: new THREE.Vector3()
+      angularVelocity: new THREE.Vector3(),
+      isTouching: false
     };
     platforms.push(entry);
   }
@@ -764,13 +771,35 @@
     scene.add(stars);
   }
 
+  function shouldUseTouchControls() {
+    const coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : false;
+    const touchPoints = (navigator.maxTouchPoints || navigator.msMaxTouchPoints || 0) > 0;
+    return coarsePointer || touchPoints || ("ontouchstart" in window);
+  }
+
+  function updateJoystickMode() {
+    const shouldEnable = shouldUseTouchControls();
+    joystickEnabled = shouldEnable;
+    if (joystickZone) {
+      joystickZone.classList.toggle("is-hidden", !joystickEnabled);
+    }
+    if (!joystickEnabled) {
+      joystickPointerId = null;
+      joystickInput.set(0, 0);
+      resetJoystick();
+    }
+  }
+
   function initJoystick() {
     joystickBaseElement = document.querySelector(".joystick-base");
     joystickHandleElement = document.querySelector(".joystick-handle");
-    const joystickZone = document.querySelector(".joystick");
+    joystickZone = document.querySelector(".joystick");
     if (!joystickBaseElement || !joystickHandleElement || !joystickZone) return;
 
+    updateJoystickMode();
+
     const handlePointerDown = event => {
+      if (!joystickEnabled) return;
       if (joystickPointerId !== null) return;
       joystickPointerId = event.pointerId;
       joystickHandleElement.style.transition = "none";
@@ -784,6 +813,7 @@
     };
 
     const handlePointerMove = event => {
+      if (!joystickEnabled) return;
       if (event.pointerId !== joystickPointerId) return;
       event.preventDefault();
       updateJoystickFromPointer(event);
@@ -805,6 +835,18 @@
     joystickZone.addEventListener("pointerup", handlePointerUp);
     joystickZone.addEventListener("pointercancel", handlePointerUp);
     joystickZone.addEventListener("lostpointercapture", resetJoystick);
+
+    const coarsePointerMedia = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+    if (coarsePointerMedia) {
+      const handleMediaChange = () => updateJoystickMode();
+      if (coarsePointerMedia.addEventListener) {
+        coarsePointerMedia.addEventListener("change", handleMediaChange);
+      } else if (coarsePointerMedia.addListener) {
+        coarsePointerMedia.addListener(handleMediaChange);
+      }
+    }
+
+    window.addEventListener("resize", updateJoystickMode);
 
     resetJoystick();
   }
@@ -958,7 +1000,13 @@
       const platform = platforms[i];
       const collider = platform.collider;
 
-      if (!rocketCollider.intersectsBox(collider)) continue;
+      if (!rocketCollider.intersectsBox(collider)) {
+        platform.isTouching = false;
+        continue;
+      }
+
+      const wasTouching = platform.isTouching === true;
+      platform.isTouching = true;
 
       const deltaX = rocket.position.x - rocketPreviousPosition.x;
       const deltaY = rocket.position.y - rocketPreviousPosition.y;
@@ -985,7 +1033,7 @@
           rocket.position.x += resolveX;
         }
 
-        if (platform.reactive) {
+        if (platform.reactive && !wasTouching) {
           applyImpulseToReactivePlatform(platform, impactVelocity, "x", direction);
         }
 
@@ -1005,7 +1053,7 @@
           isGrounded = true;
         }
 
-        if (platform.reactive) {
+        if (platform.reactive && !wasTouching) {
           applyImpulseToReactivePlatform(platform, impactVelocity, "y", direction);
         }
       }
