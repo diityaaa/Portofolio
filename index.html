@@ -56,35 +56,14 @@
       position: absolute;
       top: 50%;
       left: 50%;
-      width: 80px;
-      height: 80px;
+      width: 60px;
+      height: 60px;
       border-radius: 50%;
       background: rgba(77,198,255,0.45);
       border: 2px solid rgba(77,198,255,0.9);
       box-shadow: 0 0 14px rgba(77,198,255,0.6);
       transform: translate(calc(-50% + var(--offset-x, 0px)), calc(-50% + var(--offset-y, 0px)));
       transition: transform 0.12s ease;
-    }
-
-    .joystick.is-hidden {
-      display: none;
-    }
-    @media (pointer: coarse), (hover: none) {
-      .joystick {
-        width: 50px;
-        height: 50px;
-        bottom: 56px;
-        right: 28px;
-      }
-      .joystick-base {
-        border-width: 2px;
-      }
-      .joystick-handle {
-        width: 120px;
-        height: 120px;
-        border-width: 4px;
-        box-shadow: 0 0 30px rgba(77,198,255,0.55);
-      }
     }
 
   </style>
@@ -140,8 +119,6 @@
   let joystickPointerId = null;
   let joystickBaseElement = null;
   let joystickHandleElement = null;
-  let joystickZone = null;
-  let joystickEnabled = false;
 
   let isGrounded = false;
 
@@ -788,35 +765,13 @@
     scene.add(stars);
   }
 
-  function shouldUseTouchControls() {
-    const coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)").matches : false;
-    const touchPoints = (navigator.maxTouchPoints || navigator.msMaxTouchPoints || 0) > 0;
-    return coarsePointer || touchPoints || ("ontouchstart" in window);
-  }
-
-  function updateJoystickMode() {
-    const shouldEnable = shouldUseTouchControls();
-    joystickEnabled = shouldEnable;
-    if (joystickZone) {
-      joystickZone.classList.toggle("is-hidden", !joystickEnabled);
-    }
-    if (!joystickEnabled) {
-      joystickPointerId = null;
-      joystickInput.set(0, 0);
-      resetJoystick();
-    }
-  }
-
   function initJoystick() {
     joystickBaseElement = document.querySelector(".joystick-base");
     joystickHandleElement = document.querySelector(".joystick-handle");
-    joystickZone = document.querySelector(".joystick");
+    const joystickZone = document.querySelector(".joystick");
     if (!joystickBaseElement || !joystickHandleElement || !joystickZone) return;
 
-    updateJoystickMode();
-
     const handlePointerDown = event => {
-      if (!joystickEnabled) return;
       if (joystickPointerId !== null) return;
       joystickPointerId = event.pointerId;
       joystickHandleElement.style.transition = "none";
@@ -830,7 +785,6 @@
     };
 
     const handlePointerMove = event => {
-      if (!joystickEnabled) return;
       if (event.pointerId !== joystickPointerId) return;
       event.preventDefault();
       updateJoystickFromPointer(event);
@@ -852,18 +806,6 @@
     joystickZone.addEventListener("pointerup", handlePointerUp);
     joystickZone.addEventListener("pointercancel", handlePointerUp);
     joystickZone.addEventListener("lostpointercapture", resetJoystick);
-
-    const coarsePointerMedia = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
-    if (coarsePointerMedia) {
-      const handleMediaChange = () => updateJoystickMode();
-      if (coarsePointerMedia.addEventListener) {
-        coarsePointerMedia.addEventListener("change", handleMediaChange);
-      } else if (coarsePointerMedia.addListener) {
-        coarsePointerMedia.addListener(handleMediaChange);
-      }
-    }
-
-    window.addEventListener("resize", updateJoystickMode);
 
     resetJoystick();
   }
@@ -1120,3 +1062,58 @@
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
