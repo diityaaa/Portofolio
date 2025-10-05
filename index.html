@@ -69,6 +69,23 @@
     .joystick.is-hidden {
       display: none;
     }
+    @media (pointer: coarse), (hover: none) {
+      .joystick {
+        width: 260px;
+        height: 260px;
+        bottom: 56px;
+        right: 56px;
+      }
+      .joystick-base {
+        border-width: 2px;
+      }
+      .joystick-handle {
+        width: 120px;
+        height: 120px;
+        border-width: 4px;
+        box-shadow: 0 0 30px rgba(77,198,255,0.55);
+      }
+    }
 
   </style>
 </head>
