@@ -33,6 +33,7 @@
     }
 
     .joystick {
+      display: none;
       position: fixed;
       bottom: 30px;
       right: 30px;
@@ -64,6 +65,12 @@
       box-shadow: 0 0 14px rgba(77,198,255,0.6);
       transform: translate(calc(-50% + var(--offset-x, 0px)), calc(-50% + var(--offset-y, 0px)));
       transition: transform 0.12s ease;
+    }
+
+    @media (hover: none) and (pointer: coarse) {
+      .joystick {
+        display: block;
+      }
     }
 
   </style>
@@ -1062,6 +1069,9 @@
 </script>
 </body>
 </html>
+
+
+
 
 
 
