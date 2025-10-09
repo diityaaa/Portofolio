@@ -9,12 +9,6 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/inflate.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/PLYLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: black; font-family: 'Segoe UI', sans-serif; color: #fff; }
     canvas { display: block; }
@@ -83,32 +77,180 @@
   </div>
 </div>
 <script>
-  let scene, camera, renderer, rocket, stars, thruster, thrusterLight;
+  let scene, camera, renderer, rocket, stars, thruster, thrusterLight, thrusterParticles;
+  const thrusterParticleData = [];
+  const thrusterParticleCount = 170;
+  const animatedModels = [];
+  const orbitingModels = [];
+  const namedModels = new Map();
+  const pendingOrbitRegistrations = [];
+  const orbitTempQuaternion = new THREE.Quaternion();
+  const orbitTempVector = new THREE.Vector3();
+  const orbitTempCenter = new THREE.Vector3();
+  let thrusterParticleSpawnAccumulator = 0;
+  let thrusterParticleTexture = null;
+  let lastRocketUpdateTime = null;
+  let lastFrameTime = performance.now();
   const gltfLoader = new THREE.GLTFLoader();
   const textureLoader = new THREE.TextureLoader();
   const fontLoader = new THREE.FontLoader();
   const fontCache = new Map();
   const defaultFontUrl = "https://threejs.org/examples/fonts/helvetiker_regular.typeface.json";
-  const loaderCache = {};
 
   const modelConfigs = [
     // type optional, otomatis ditebak dari ekstensi file kalau tidak diisi
-    // Example: { url: "models/tree.glb", type: "gltf", position: { x: 15, y: -8, z: 0 }, scale: 2, center: true, collidable: true, reactive: true }
-    // Example: { url: "models/car.obj", type: "obj", mtlUrl: "models/car.mtl", position: { x: -35, y: -12, z: 0 }, scale: 1.5, collidable: true, reactive: true }
-    // Example: { url: "models/character.fbx", type: "fbx", position: { x: 45, y: -5, z: 0 }, scale: 0.1, collidable: true, reactive: true }
+    // Gunakan rotate: { enabled: true, axis: { x:0, y:1, z:0 }, speed: 15 } untuk animasi putar kustom
+    // Gunakan orbit: { enabled: true, targetName: "earth", radius: 260, height: 60, speed: 20, faceTarget: true } untuk membuat objek mengelilingi target
+    {
+      name: "earth",
+      url: "models/earth.glb",
+      center: true,
+      scale: 500,
+      position: { x: -70, y: -8, z: -90 },
+      rotation: { x: 0, y: 0, z: 0 },
+      castShadow: true,
+      receiveShadow: true,
+      rotate: {
+        enabled: true,
+        axis: { x: 0, y: 1, z: 0 },
+        speed: 8
+      },
+      light: {
+        type: "point",
+        color: 0xaee0ff,
+        intensity: 1.6,
+        distance: 520,
+        decay: 1.8,
+        offset: { x: 0, y: 130, z: 40 }
+      },
+      onLoad: model => {
+        const bbox = new THREE.Box3().setFromObject(model);
+        const size = bbox.getSize(new THREE.Vector3());
+        console.log("models/earth.glb loaded", { size, position: model.position.clone() });
+      }
+    },
+    {
+      name: "mars",
+      url: "models/mars.glb",
+      center: true,
+      scale: 1,
+      position: { x: -200, y: 0, z: 0 },
+      castShadow: true,
+      receiveShadow: true,
+      rotate: {
+        enabled: true,
+        axis: { x: 0, y: 1, z: 0 },
+        speed: 6
+      },
+      light: {
+        type: "point",
+        color: 0xffccb0,
+        intensity: 1.4,
+        distance: 420,
+        decay: 1.9,
+        offset: { x: -10, y: 95, z: 25 }
+      }
+    },
+    {
+      name: "jupiter",
+      url: "models/jupiter.glb",
+      center: true,
+      scale: 0.0001,
+      position: { x: 200, y: 0, z: 0 },
+      castShadow: true,
+      receiveShadow: true,
+      rotate: {
+        enabled: true,
+        axis: { x: 0, y: 1, z: 0 },
+        speed: 12
+      },
+      light: {
+        type: "point",
+        color: 0xfff2ce,
+        intensity: 2.1,
+        distance: 720,
+        decay: 2,
+        offset: { x: -20, y: 170, z: 60 }
+      }
+    },
+    {
+      name: "asteroid",
+      url: "models/asteroid.glb",
+      center: true,
+      scale: 2,
+      position: { x: 100, y: 0, z: 0 },
+      rotate: {
+        enabled: true,
+        axis: { x: 0.3, y: 0.9, z: 0.2 },
+        speed: 18
+      },
+      light: {
+        type: "point",
+        color: 0xdde9ff,
+        intensity: 1.25,
+        distance: 260,
+        decay: 2,
+        offset: { x: 0, y: 80, z: 0 }
+      }
+    },
+    {
+      name: "satellite",
+      url: "models/satellite.glb",
+      center: true,
+      scale: 7,
+      position: { x: -62, y: 42, z: -90 },
+      castShadow: true,
+      receiveShadow: true,
+      light: {
+        type: "point",
+        color: 0xb2e0ff,
+        intensity: 1.6,
+        distance: 360,
+        decay: 1.7,
+        offset: { x: 0, y: 90, z: 30 }
+      },
+      orbit: {
+        enabled: true,
+        targetName: "earth",
+        radius: 32,
+        height: 24,
+        speed: 38,
+        startAngle: 12,
+        axis: { x: 0, y: 1, z: 0 },
+        faceTarget: true
+      }
+    }
+    // {
+    //   url: "models/direction_arrow.glb", 
+    //   center: false,
+    //   scale: 5,
+    //   position: { x: 0, y: 0, z: 0 },
+    //   rotation: { x: 90, y: 0, z: 0 },
+    //   castShadow: true,
+    //   receiveShadow: true,
+    // },
+    // {
+    //   url: "models/direction_arrow.glb",
+    //   center: true,
+    //   scale: 5,
+    //   position: { x: -80, y: 0, z: 0 },
+    //   rotation: { x: 90, y: 0, z: 180 },
+    //   castShadow: true,
+    //   receiveShadow: true,
+    // },
   ];
 
   const imageConfigs = [
-    { url: "BimaJPG.jpg", position: { x: 20, y: 12, z: 0 }, width: 15 }
+    // { url: "BimaJPG.jpg", position: { x: 20, y: 12, z: 0 }, width: 15 }
   ];
 
   const textConfigs = [
     // Example: { text: "Hello", fontUrl: "fonts/helvetiker_regular.typeface.json", position: { x: -10, y: 25, z: 0 }, size: 6, height: 1, color: 0xffd166, collidable: true, reactive: true }
-    { text: "Hello Saya Bima Sakti Aditya", position: { x: 0, y: 0, z: 0 }, color: "#ffd166" }
+    // { text: "Hello Saya Bima Sakti Aditya", position: { x: 0, y: 0, z: 0 }, color: "#ffd166" }
   ];
 
   const boxConfigs = [
-    { size: { x: 20, y: 6, z: 10 }, position: { x: 5, y: -20, z: 0 }, color: 0x2d9bf0, collidable: true, reactive: true }
+    // { size: { x: 20, y: 6, z: 10 }, position: { x: 5, y: -20, z: 0 }, color: 0x2d9bf0, collidable: true, reactive: true }
   ];
 
   const keys = {};
@@ -121,6 +263,8 @@
   const rotationAxisZ = new THREE.Vector3(0, 0, 1);
   const targetQuaternion = new THREE.Quaternion();
   const rotationOffset = new THREE.Quaternion();
+  const collisionResolutionEpsilon = 0.0015;
+  const groundedSnapThreshold = 0.05;
 
   const joystickInput = new THREE.Vector2();
   let joystickPointerId = null;
@@ -223,6 +367,7 @@
         thrusterLight = new THREE.PointLight(0xff9551, 1.1, 55, 2);
         thrusterLight.position.set(0, -4.5, 0);
         rocket.add(thrusterLight);
+        initThrusterParticles();
       },
       undefined,
       error => {
@@ -235,10 +380,156 @@
     window.addEventListener("blur", resetJoystick);
   }
 
+  function createThrusterParticleTexture() {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.35, "rgba(255,214,163,0.95)");
+    gradient.addColorStop(0.6, "rgba(255,140,40,0.65)");
+    gradient.addColorStop(1, "rgba(255,95,20,0)");
+    context.clearRect(0, 0, size, size);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  }
+
+  function initThrusterParticles() {
+    if (!rocket) return;
+
+    if (thrusterParticles) {
+      rocket.remove(thrusterParticles);
+      if (thrusterParticles.geometry) thrusterParticles.geometry.dispose();
+      if (thrusterParticles.material) thrusterParticles.material.dispose();
+    }
+
+    thrusterParticleData.length = 0;
+    thrusterParticleSpawnAccumulator = 0;
+
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(thrusterParticleCount * 3);
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    if (!thrusterParticleTexture) {
+      thrusterParticleTexture = createThrusterParticleTexture();
+    }
+
+    const material = new THREE.PointsMaterial({
+      map: thrusterParticleTexture,
+      size: 1.8,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: false,
+      sizeAttenuation: true
+    });
+
+    thrusterParticles = new THREE.Points(geometry, material);
+    thrusterParticles.frustumCulled = false;
+    thrusterParticles.visible = false;
+    thrusterParticles.position.set(0, -5.8, 0);
+    rocket.add(thrusterParticles);
+
+    for (let i = 0; i < thrusterParticleCount; i++) {
+      thrusterParticleData.push({
+        velocity: new THREE.Vector3(),
+        life: 0,
+        maxLife: 0
+      });
+    }
+  }
+
+  function respawnThrusterParticle(index, strength) {
+    if (!thrusterParticles) return;
+    const positions = thrusterParticles.geometry.attributes.position.array;
+    const data = thrusterParticleData[index];
+    const spread = 1.1 + strength * 0.9;
+    const idx = index * 3;
+    positions[idx] = (Math.random() - 0.5) * spread;
+    positions[idx + 1] = -0.4 - Math.random() * 0.35;
+    positions[idx + 2] = (Math.random() - 0.5) * spread;
+
+    const lateralScale = 1.05 + strength * 0.85;
+    const baseSpeed = 14 + strength * 20;
+
+    data.velocity.set(
+      (Math.random() - 0.5) * lateralScale,
+      -(baseSpeed + Math.random() * 6),
+      (Math.random() - 0.5) * lateralScale
+    );
+    data.maxLife = 0.25 + Math.random() * 0.25 + strength * 0.22;
+    data.life = data.maxLife;
+  }
+
+  function updateThrusterParticles(strength, delta) {
+    if (!thrusterParticles || !thrusterParticles.geometry) return;
+
+    const positions = thrusterParticles.geometry.attributes.position.array;
+
+    for (let i = 0; i < thrusterParticleData.length; i++) {
+      const data = thrusterParticleData[i];
+      if (data.life > 0) {
+        const idx = i * 3;
+        data.life -= delta;
+        positions[idx] += data.velocity.x * delta;
+        positions[idx + 1] += data.velocity.y * delta;
+        positions[idx + 2] += data.velocity.z * delta;
+
+        data.velocity.x *= 0.94;
+        data.velocity.z *= 0.94;
+        data.velocity.y -= 14 * delta;
+
+        if (data.life <= 0) {
+          positions[idx + 1] = -7 - Math.random() * 3;
+        }
+      }
+    }
+
+    if (strength > 0.05) {
+      thrusterParticleSpawnAccumulator += strength * 140 * delta;
+      let spawnBudget = Math.floor(thrusterParticleSpawnAccumulator);
+      if (spawnBudget > 0) {
+        for (let s = 0; s < spawnBudget; s++) {
+          const slot = thrusterParticleData.findIndex(entry => entry.life <= 0);
+          if (slot === -1) break;
+          respawnThrusterParticle(slot, strength);
+        }
+        thrusterParticleSpawnAccumulator -= spawnBudget;
+      }
+    } else {
+      thrusterParticleSpawnAccumulator = 0;
+    }
+
+    const material = thrusterParticles.material;
+    const targetOpacity = strength > 0.05 ? 0.4 + strength * 0.55 : 0;
+    const targetSize = 1.6 + strength * 2.2;
+    material.opacity = THREE.MathUtils.lerp(material.opacity, targetOpacity, 0.25);
+    material.size = THREE.MathUtils.lerp(material.size, targetSize, 0.2);
+    thrusterParticles.visible = material.opacity > 0.02;
+    thrusterParticles.geometry.attributes.position.needsUpdate = true;
+  }
+
   function centerModel(model) {
     const box = new THREE.Box3().setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
     model.position.sub(center);
+  }
+
+  function setMatrixAutoUpdateRecursive(object, enabled) {
+    if (!object) return;
+    object.matrixAutoUpdate = enabled;
+    if (object.children && object.children.length) {
+      object.children.forEach(child => setMatrixAutoUpdateRecursive(child, enabled));
+    }
   }
 
   function applyTransformFromConfig(object, config) {
@@ -374,35 +665,11 @@
     return match ? match[1].toLowerCase() : "";
   }
 
-  function ensureLoaderAvailable(constructor, loaderName) {
-    if (typeof constructor !== "function") {
-      console.error(`${loaderName} is not available. Pastikan script loader-nya sudah dimuat.`);
-      return null;
-    }
-    return constructor;
-  }
-
   function getLoaderForModelType(type) {
     switch (type) {
       case "gltf":
       case "glb":
         return gltfLoader;
-      case "obj":
-        if (!ensureLoaderAvailable(THREE.OBJLoader, "THREE.OBJLoader")) return null;
-        return loaderCache.obj || (loaderCache.obj = new THREE.OBJLoader());
-      case "fbx":
-        if (!ensureLoaderAvailable(THREE.FBXLoader, "THREE.FBXLoader")) return null;
-        return loaderCache.fbx || (loaderCache.fbx = new THREE.FBXLoader());
-      case "stl":
-        if (!ensureLoaderAvailable(THREE.STLLoader, "THREE.STLLoader")) return null;
-        return loaderCache.stl || (loaderCache.stl = new THREE.STLLoader());
-      case "ply":
-        if (!ensureLoaderAvailable(THREE.PLYLoader, "THREE.PLYLoader")) return null;
-        return loaderCache.ply || (loaderCache.ply = new THREE.PLYLoader());
-      case "dae":
-      case "collada":
-        if (!ensureLoaderAvailable(THREE.ColladaLoader, "THREE.ColladaLoader")) return null;
-        return loaderCache.dae || (loaderCache.dae = new THREE.ColladaLoader());
       default:
         return null;
     }
@@ -447,23 +714,6 @@
     return new THREE.MeshStandardMaterial(materialOptions);
   }
 
-  function createMeshFromGeometry(geometry, config) {
-    if (!geometry) return null;
-    if (geometry.computeVertexNormals) geometry.computeVertexNormals();
-    if (config.center) {
-      if (geometry.center) {
-        geometry.center();
-      }
-    }
-    const material = createMaterialFromConfig(config, geometry);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = config.castShadow !== undefined ? !!config.castShadow : true;
-    if (config.receiveShadow !== undefined) {
-      mesh.receiveShadow = !!config.receiveShadow;
-    }
-    return mesh;
-  }
-
   function buildObjectFromResult(type, result, config) {
     switch (type) {
       case "gltf":
@@ -471,26 +721,6 @@
         const scene = result && (result.scene || (result.scenes && result.scenes[0]));
         if (!scene) return null;
         return { object: scene, raw: result };
-      }
-      case "obj":
-      case "fbx": {
-        return { object: result, raw: result };
-      }
-      case "dae":
-      case "collada": {
-        const scene = result && (result.scene || result.scenes && result.scenes[0]);
-        if (!scene) return null;
-        return { object: scene, raw: result };
-      }
-      case "stl": {
-        const geometry = result && (result.isBufferGeometry ? result : result.geometry);
-        const mesh = createMeshFromGeometry(geometry, config);
-        return mesh ? { object: mesh, raw: result, skipCenter: true } : null;
-      }
-      case "ply": {
-        const geometry = result && (result.isBufferGeometry ? result : result.geometry);
-        const mesh = createMeshFromGeometry(geometry, config);
-        return mesh ? { object: mesh, raw: result, skipCenter: true } : null;
       }
       default:
         console.warn(`Tipe model "${type}" belum didukung untuk ${config.url}`);
@@ -516,7 +746,16 @@
         lookAt.z !== undefined ? lookAt.z : 0
       );
     }
+    setMatrixAutoUpdateRecursive(model, true);
+    model.updateMatrixWorld(true);
     scene.add(model);
+    if (config.name) {
+      namedModels.set(config.name, model);
+      resolvePendingOrbitRegistrations(config.name);
+    }
+    registerLightForModel(model, config);
+    registerOrbitAnimationIfNeeded(model, config);
+    registerRotationAnimationIfNeeded(model, config);
     registerStaticColliderIfNeeded(model, config);
     if (typeof config.onLoad === "function") {
       config.onLoad(model, rawResult);
@@ -547,9 +786,6 @@
         if (config.path && loader.setPath) {
           loader.setPath(previousPath || "");
         }
-        if (type === "obj" && config.mtlUrl && loader.setMaterials) {
-          loader.setMaterials(null);
-        }
       };
 
       const handleSuccess = result => {
@@ -566,24 +802,6 @@
           config.onError(error);
         }
       };
-
-      if (type === "obj" && config.mtlUrl && ensureLoaderAvailable(THREE.MTLLoader, "THREE.MTLLoader")) {
-        const mtlLoader = loaderCache.mtl || (loaderCache.mtl = new THREE.MTLLoader());
-        mtlLoader.load(
-          config.mtlUrl,
-          materials => {
-            materials.preload();
-            loader.setMaterials(materials);
-            loader.load(config.url, handleSuccess, config.onProgress, handleError);
-          },
-          undefined,
-          mtlError => {
-            console.error("Gagal load MTL:", config.mtlUrl, mtlError);
-            loader.load(config.url, handleSuccess, config.onProgress, handleError);
-          }
-        );
-        return;
-      }
 
       if (config.resourcePath && loader.setResourcePath) {
         loader.setResourcePath(config.resourcePath);
@@ -859,6 +1077,13 @@
   function updateRocket() {
     if (!rocket) return;
 
+    const now = performance.now();
+    if (lastRocketUpdateTime === null) {
+      lastRocketUpdateTime = now;
+    }
+    const delta = Math.min((now - lastRocketUpdateTime) / 1000, 0.05);
+    lastRocketUpdateTime = now;
+
     updateReactivePlatforms();
 
     rocketPreviousPosition.copy(rocket.position);
@@ -909,25 +1134,28 @@
       }
     }
 
+    let flameStrength = 0;
     if (thruster && rocket.userData.thrusterMaterial && thrusterLight) {
       const velocityStrength = THREE.MathUtils.clamp(rocketVelocity.length() / maxAscendSpeed, 0, 1);
       const inputStrength = Math.max(0, verticalInput);
       const horizontalStrength = Math.abs(horizontalInput) * 0.6;
-      const flameStrength = THREE.MathUtils.clamp(Math.max(inputStrength, velocityStrength * 0.75, horizontalStrength), 0, 1);
+      flameStrength = THREE.MathUtils.clamp(Math.max(inputStrength, velocityStrength * 0.75, horizontalStrength), 0, 1);
       const time = performance.now() * 0.002;
       const flicker = Math.sin(time * 7.5) * 0.1 + Math.sin(time * 13.0) * 0.05;
-      const scaleY = 0.8 + flameStrength * 1.1 + flicker;
-      const scaleX = 0.6 + flameStrength * 0.4;
+      const scaleY = 1.1 + flameStrength * 1.6 + flicker;
+      const scaleX = 0.85 + flameStrength * 0.6;
       thruster.scale.set(scaleX, scaleY, scaleX);
-      thruster.position.y = -5.4 - flameStrength * 1.2;
+      thruster.position.y = -5.6 - flameStrength * 1.6;
       const material = rocket.userData.thrusterMaterial;
       material.opacity = 0.35 + flameStrength * 0.5;
       material.emissiveIntensity = 0.8 + flameStrength * 1.8;
       thruster.visible = flameStrength > 0.05;
-      thrusterLight.intensity = 0.5 + flameStrength * 2.2;
-      thrusterLight.distance = 35 + flameStrength * 28;
-      thrusterLight.position.y = -4.6 - flameStrength * 1.0;
+      thrusterLight.intensity = 0.7 + flameStrength * 2.8;
+      thrusterLight.distance = 40 + flameStrength * 34;
+      thrusterLight.position.y = -4.8 - flameStrength * 1.3;
     }
+
+    updateThrusterParticles(flameStrength, delta);
 
     rocket.position.add(rocketVelocity);
     rocketCollider.setFromObject(rocket);
@@ -962,69 +1190,112 @@
   function resolveCollisions() {
     if (!rocket) return;
 
+    const movementX = rocket.position.x - rocketPreviousPosition.x;
+    const movementY = rocket.position.y - rocketPreviousPosition.y;
+    const axisOrder = [
+      { axis: "x", delta: movementX },
+      { axis: "y", delta: movementY }
+    ];
+
+    for (let i = 0; i < platforms.length; i++) {
+      platforms[i]._touchThisFrame = false;
+    }
+
+    for (let a = 0; a < axisOrder.length; a++) {
+      const { axis, delta } = axisOrder[a];
+      rocketCollider.setFromObject(rocket);
+
+      for (let i = 0; i < platforms.length; i++) {
+        const platform = platforms[i];
+        const collider = platform.collider;
+        if (!collider) continue;
+
+        if (!rocketCollider.intersectsBox(collider)) continue;
+
+        const overlapPositive = rocketCollider.max[axis] - collider.min[axis];
+        const overlapNegative = collider.max[axis] - rocketCollider.min[axis];
+
+        if (overlapPositive <= 0 || overlapNegative <= 0) continue;
+
+        const wasTouching = platform.isTouching === true;
+        let shift = 0;
+        let direction = 0;
+
+        if (delta > 0) {
+          shift = -(overlapPositive + collisionResolutionEpsilon);
+          direction = 1;
+        } else if (delta < 0) {
+          shift = overlapNegative + collisionResolutionEpsilon;
+          direction = -1;
+        } else {
+          const rocketCenter = (rocketCollider.min[axis] + rocketCollider.max[axis]) * 0.5;
+          const platformCenter = (collider.min[axis] + collider.max[axis]) * 0.5;
+          if (rocketCenter >= platformCenter) {
+            shift = overlapNegative + collisionResolutionEpsilon;
+            direction = -1;
+          } else {
+            shift = -(overlapPositive + collisionResolutionEpsilon);
+            direction = 1;
+          }
+        }
+
+        if (shift === 0) continue;
+
+        const impactVelocity = rocketVelocity.clone();
+        rocket.position[axis] += shift;
+        rocketCollider.setFromObject(rocket);
+
+        if (axis === "x") {
+          rocketVelocity.x = 0;
+        } else if (axis === "y") {
+          rocketVelocity.y = 0;
+          if (shift > 0) {
+            isGrounded = true;
+          }
+        }
+
+        platform._touchThisFrame = true;
+
+        if (!wasTouching && platform.reactive) {
+          applyImpulseToReactivePlatform(platform, impactVelocity, axis, direction);
+        }
+      }
+    }
+
+    if (!isGrounded) {
+      rocketCollider.setFromObject(rocket);
+      let groundedPlatform = null;
+
+      for (let i = 0; i < platforms.length; i++) {
+        const platform = platforms[i];
+        const collider = platform.collider;
+        if (!collider) continue;
+
+        const horizontalOverlap =
+          rocketCollider.max.x > collider.min.x &&
+          rocketCollider.min.x < collider.max.x &&
+          rocketCollider.max.z > collider.min.z &&
+          rocketCollider.min.z < collider.max.z;
+
+        if (!horizontalOverlap) continue;
+
+        const verticalGap = rocketCollider.min.y - collider.max.y;
+        if (verticalGap >= 0 && verticalGap <= groundedSnapThreshold) {
+          groundedPlatform = platform;
+          isGrounded = true;
+          break;
+        }
+      }
+
+      if (groundedPlatform) {
+        groundedPlatform._touchThisFrame = true;
+      }
+    }
+
     for (let i = 0; i < platforms.length; i++) {
       const platform = platforms[i];
-      const collider = platform.collider;
-
-      if (!rocketCollider.intersectsBox(collider)) {
-        platform.isTouching = false;
-        continue;
-      }
-
-      const wasTouching = platform.isTouching === true;
-      platform.isTouching = true;
-
-      const deltaX = rocket.position.x - rocketPreviousPosition.x;
-      const deltaY = rocket.position.y - rocketPreviousPosition.y;
-
-      const overlapRight = rocketCollider.max.x - collider.min.x;
-      const overlapLeft = collider.max.x - rocketCollider.min.x;
-      const overlapUp = collider.max.y - rocketCollider.min.y;
-      const overlapDown = rocketCollider.max.y - collider.min.y;
-
-      const resolveX = Math.min(overlapRight, overlapLeft);
-      const resolveY = Math.min(overlapUp, overlapDown);
-
-      const impactVelocity = rocketVelocity.clone();
-
-      if (resolveX < resolveY) {
-        const rocketCenterX = (rocketCollider.min.x + rocketCollider.max.x) * 0.5;
-        const platformCenterX = (collider.min.x + collider.max.x) * 0.5;
-        const hittingFromRight = deltaX > 0 || (deltaX === 0 && rocketCenterX >= platformCenterX);
-        const direction = hittingFromRight ? 1 : -1;
-
-        if (hittingFromRight) {
-          rocket.position.x -= resolveX;
-        } else {
-          rocket.position.x += resolveX;
-        }
-
-        if (platform.reactive && !wasTouching) {
-          applyImpulseToReactivePlatform(platform, impactVelocity, "x", direction);
-        }
-
-        rocketVelocity.x = 0;
-      } else {
-        const rocketCenterY = (rocketCollider.min.y + rocketCollider.max.y) * 0.5;
-        const platformCenterY = (collider.min.y + collider.max.y) * 0.5;
-        const hittingFromAbove = deltaY > 0 || (deltaY === 0 && rocketCenterY >= platformCenterY);
-        const direction = hittingFromAbove ? 1 : -1;
-
-        if (hittingFromAbove) {
-          rocket.position.y -= resolveY;
-          if (rocketVelocity.y > 0) rocketVelocity.y = 0;
-        } else {
-          rocket.position.y += resolveY;
-          rocketVelocity.y = 0;
-          isGrounded = true;
-        }
-
-        if (platform.reactive && !wasTouching) {
-          applyImpulseToReactivePlatform(platform, impactVelocity, "y", direction);
-        }
-      }
-
-      rocketCollider.setFromObject(rocket);
+      platform.isTouching = platform._touchThisFrame === true;
+      delete platform._touchThisFrame;
     }
   }
   function updateCamera() {
@@ -1049,8 +1320,261 @@
     }
   }
 
+  function registerLightForModel(model, config) {
+    const lightConfig = config && config.light;
+    if (!lightConfig) return;
+    const type = lightConfig.type ? String(lightConfig.type).toLowerCase() : "point";
+    const color = lightConfig.color !== undefined ? lightConfig.color : 0xffffff;
+    const intensity = lightConfig.intensity !== undefined ? lightConfig.intensity : 1.2;
+    let light = null;
+
+    switch (type) {
+      case "point": {
+        const distance = lightConfig.distance !== undefined ? lightConfig.distance : 220;
+        const decay = lightConfig.decay !== undefined ? lightConfig.decay : 2;
+        light = new THREE.PointLight(color, intensity, distance, decay);
+        break;
+      }
+      case "spot": {
+        const distance = lightConfig.distance !== undefined ? lightConfig.distance : 260;
+        const angle = lightConfig.angle !== undefined ? THREE.MathUtils.degToRad(lightConfig.angle) : Math.PI / 4;
+        const penumbra = lightConfig.penumbra !== undefined ? THREE.MathUtils.clamp(lightConfig.penumbra, 0, 1) : 0.3;
+        const decay = lightConfig.decay !== undefined ? lightConfig.decay : 2;
+        light = new THREE.SpotLight(color, intensity, distance, angle, penumbra, decay);
+        break;
+      }
+      case "directional": {
+        light = new THREE.DirectionalLight(color, intensity);
+        break;
+      }
+      default: {
+        console.warn(`Jenis light "${lightConfig.type}" belum didukung, fallback ke PointLight`, config && config.url);
+        light = new THREE.PointLight(color, intensity);
+      }
+    }
+
+    if (!light) return;
+
+    if (lightConfig.castShadow !== undefined) {
+      light.castShadow = !!lightConfig.castShadow;
+    }
+    const offset = lightConfig.offset || {};
+    light.position.set(
+      offset.x !== undefined ? offset.x : 0,
+      offset.y !== undefined ? offset.y : 0,
+      offset.z !== undefined ? offset.z : 0
+    );
+
+    if (light instanceof THREE.SpotLight || light instanceof THREE.DirectionalLight) {
+      const targetOffset = lightConfig.targetOffset || { x: 0, y: 0, z: 0 };
+      if (!light.target) {
+        light.target = new THREE.Object3D();
+      }
+      light.target.position.set(
+        targetOffset.x !== undefined ? targetOffset.x : 0,
+        targetOffset.y !== undefined ? targetOffset.y : 0,
+        targetOffset.z !== undefined ? targetOffset.z : 0
+      );
+      model.add(light.target);
+    }
+
+    model.add(light);
+  }
+
+  function registerOrbitAnimationIfNeeded(model, config) {
+    if (!model || !config) return;
+    const orbit = config.orbit;
+    if (!orbit) return;
+    if (model.userData.orbitAnimation) return;
+    const enabled = orbit.enabled !== undefined ? !!orbit.enabled : true;
+    if (!enabled) return;
+
+    const targetName = orbit.targetName;
+    const target = targetName ? namedModels.get(targetName) : null;
+
+    if (targetName && !target) {
+      if (model.userData.pendingOrbit === orbit) return;
+      model.userData.pendingOrbit = orbit;
+      pendingOrbitRegistrations.push({ model, orbit });
+      return;
+    }
+
+    createOrbitEntry(model, orbit, target);
+  }
+
+  function createOrbitEntry(model, orbit, target) {
+    const axisConfig = orbit.axis || {};
+    const axis = new THREE.Vector3(
+      axisConfig.x !== undefined ? axisConfig.x : 0,
+      axisConfig.y !== undefined ? axisConfig.y : 1,
+      axisConfig.z !== undefined ? axisConfig.z : 0
+    );
+    if (axis.lengthSq() === 0) {
+      axis.set(0, 1, 0);
+    } else {
+      axis.normalize();
+    }
+
+    const radius = orbit.radius !== undefined ? orbit.radius : null;
+    const height = orbit.height !== undefined ? orbit.height : 0;
+    const depth = orbit.depth !== undefined ? orbit.depth : 0;
+
+    const baseOffset = new THREE.Vector3();
+    if (orbit.offset) {
+      baseOffset.set(
+        orbit.offset.x !== undefined ? orbit.offset.x : 0,
+        orbit.offset.y !== undefined ? orbit.offset.y : 0,
+        orbit.offset.z !== undefined ? orbit.offset.z : 0
+      );
+    } else if (radius !== null || height !== 0 || depth !== 0) {
+      const resolvedRadius = radius !== null ? radius : 200;
+      baseOffset.set(resolvedRadius, height, depth);
+    } else if (target) {
+      const centerPos = target.getWorldPosition(new THREE.Vector3());
+      const modelPos = model.getWorldPosition(new THREE.Vector3());
+      baseOffset.copy(modelPos.sub(centerPos));
+    } else {
+      baseOffset.set(orbit.radius !== undefined ? orbit.radius : 200, height, depth);
+    }
+
+    if (baseOffset.lengthSq() === 0) {
+      baseOffset.set(orbit.radius !== undefined ? orbit.radius : 200, height !== undefined ? height : 0, depth);
+    }
+
+    const angleOffset = THREE.MathUtils.degToRad(orbit.startAngle !== undefined ? orbit.startAngle : 0);
+    const speedDeg = orbit.speed !== undefined ? orbit.speed : 15;
+    const speedRadPerSec =
+      THREE.MathUtils.degToRad(speedDeg) * (orbit.direction === "cw" || orbit.clockwise === true ? -1 : 1);
+
+    const centerOffset = orbit.centerOffset
+      ? new THREE.Vector3(
+          orbit.centerOffset.x !== undefined ? orbit.centerOffset.x : 0,
+          orbit.centerOffset.y !== undefined ? orbit.centerOffset.y : 0,
+          orbit.centerOffset.z !== undefined ? orbit.centerOffset.z : 0
+        )
+      : null;
+
+    const staticCenter = !target && orbit.center
+      ? new THREE.Vector3(
+          orbit.center.x !== undefined ? orbit.center.x : 0,
+          orbit.center.y !== undefined ? orbit.center.y : 0,
+          orbit.center.z !== undefined ? orbit.center.z : 0
+        )
+      : null;
+
+    const entry = {
+      model,
+      target: target || null,
+      staticCenter,
+      centerOffset,
+      axis,
+      baseOffset,
+      angle: angleOffset,
+      speedRadPerSec,
+      faceTarget: !!orbit.faceTarget
+    };
+
+    orbitingModels.push(entry);
+    model.userData.orbitAnimation = entry;
+    delete model.userData.pendingOrbit;
+
+    updateSingleOrbitEntry(entry, 0, false);
+  }
+
+  function resolvePendingOrbitRegistrations(resolvedName) {
+    if (!pendingOrbitRegistrations.length) return;
+    for (let i = pendingOrbitRegistrations.length - 1; i >= 0; i--) {
+      const pending = pendingOrbitRegistrations[i];
+      const orbit = pending.orbit;
+      if (!orbit) {
+        pendingOrbitRegistrations.splice(i, 1);
+        continue;
+      }
+      const targetName = orbit.targetName;
+      if (targetName && targetName !== resolvedName) continue;
+      const target = targetName ? namedModels.get(targetName) : null;
+      if (targetName && !target) continue;
+      pendingOrbitRegistrations.splice(i, 1);
+      createOrbitEntry(pending.model, orbit, target);
+    }
+  }
+
+  function updateSingleOrbitEntry(entry, deltaSeconds, advanceAngle) {
+    if (!entry || !entry.model) return;
+    if (advanceAngle && entry.speedRadPerSec !== 0) {
+      entry.angle = (entry.angle + entry.speedRadPerSec * deltaSeconds) % (Math.PI * 2);
+    }
+    orbitTempQuaternion.setFromAxisAngle(entry.axis, entry.angle);
+    orbitTempVector.copy(entry.baseOffset).applyQuaternion(orbitTempQuaternion);
+    let center;
+    if (entry.target) {
+      center = entry.target.getWorldPosition(orbitTempCenter);
+    } else if (entry.staticCenter) {
+      center = orbitTempCenter.copy(entry.staticCenter);
+    } else {
+      center = orbitTempCenter.set(0, 0, 0);
+    }
+    if (entry.centerOffset) {
+      center.add(entry.centerOffset);
+    }
+    const newPosition = orbitTempVector.add(center);
+    entry.model.position.copy(newPosition);
+    if (entry.faceTarget && entry.target) {
+      entry.model.lookAt(center);
+    }
+  }
+
+  function registerRotationAnimationIfNeeded(object, config) {
+    const rotate = config && config.rotate;
+    if (!rotate) return;
+    const enabled = rotate.enabled !== undefined ? !!rotate.enabled : true;
+    if (!enabled) return;
+    const axisConfig = rotate.axis || {};
+    const axis = new THREE.Vector3(
+      axisConfig.x !== undefined ? axisConfig.x : 0,
+      axisConfig.y !== undefined ? axisConfig.y : 1,
+      axisConfig.z !== undefined ? axisConfig.z : 0
+    );
+    if (axis.lengthSq() === 0) {
+      axis.set(0, 1, 0);
+    } else {
+      axis.normalize();
+    }
+    const speed = rotate.speed !== undefined ? rotate.speed : 20;
+    const entry = {
+      object,
+      axis,
+      speedRadPerSec: THREE.MathUtils.degToRad(speed)
+    };
+    object.userData.rotationAnimation = entry;
+    animatedModels.push(entry);
+  }
+
+  function updateAnimatedModels(delta) {
+    if (!animatedModels.length) return;
+    for (let i = 0; i < animatedModels.length; i++) {
+      const entry = animatedModels[i];
+      if (!entry || !entry.object) continue;
+      const angle = entry.speedRadPerSec * delta;
+      if (angle === 0) continue;
+      entry.object.rotateOnAxis(entry.axis, angle);
+    }
+  }
+
+  function updateOrbitingModels(delta) {
+    if (!orbitingModels.length) return;
+    for (let i = 0; i < orbitingModels.length; i++) {
+      updateSingleOrbitEntry(orbitingModels[i], delta, true);
+    }
+  }
+
   function animate() {
     requestAnimationFrame(animate);
+    const now = performance.now();
+    const deltaSeconds = Math.min((now - lastFrameTime) / 1000, 0.05);
+    lastFrameTime = now;
+    updateOrbitingModels(deltaSeconds);
+    updateAnimatedModels(deltaSeconds);
     updateRocket();
     updateCamera();
     renderer.render(scene, camera);
@@ -1069,61 +1593,3 @@
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
