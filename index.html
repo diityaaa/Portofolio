@@ -38,6 +38,9 @@
       user-select: none;
       z-index: 5;
     }
+    body.show-joystick .joystick {
+      display: block;
+    }
     .joystick-base {
       width: 100%;
       height: 100%;
@@ -70,7 +73,7 @@
   </style>
 </head>
 <body>
-<div class="hud">gerakin joysticknya bray</div>
+<div class="hud">Gerakin joysticknya bray - tekan J di desktop buat munculin/sembunyiin</div>
 <div class="joystick">
   <div class="joystick-base">
     <div class="joystick-handle"></div>
@@ -97,7 +100,69 @@
   const fontCache = new Map();
   const defaultFontUrl = "https://threejs.org/examples/fonts/helvetiker_regular.typeface.json";
 
+  const coarsePointerQuery = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(hover: none) and (pointer: coarse)") : null;
+  let joystickManualOverride = null;
+  let joystickAutoVisible = false;
+
+  function computeAutoJoystickVisibility() {
+    if (coarsePointerQuery && coarsePointerQuery.matches) return true;
+    if (typeof navigator !== "undefined") {
+      if (typeof navigator.maxTouchPoints === "number" && navigator.maxTouchPoints > 0) return true;
+      if (typeof navigator.msMaxTouchPoints === "number" && navigator.msMaxTouchPoints > 0) return true;
+      const ua = navigator.userAgent || "";
+      if (/(android|iphone|ipad|ipod|iemobile|webos|blackberry|bb10|playbook|opera mini|mobile)/i.test(ua)) return true;
+    }
+    if (typeof window !== "undefined" && ("ontouchstart" in window || ("DocumentTouch" in window && document instanceof window.DocumentTouch))) return true;
+    return false;
+  }
+
+  function setJoystickVisibility(visible) {
+    const currentlyVisible = document.body.classList.contains("show-joystick");
+    if (visible && !currentlyVisible) {
+      document.body.classList.add("show-joystick");
+    } else if (!visible && currentlyVisible) {
+      document.body.classList.remove("show-joystick");
+      resetJoystick();
+    }
+  }
+
+  function updateAutoJoystickVisibility() {
+    joystickAutoVisible = computeAutoJoystickVisibility();
+    if (joystickManualOverride === null) {
+      setJoystickVisibility(joystickAutoVisible);
+    }
+  }
+
+  function handleFirstTouch() {
+    if (joystickManualOverride === null) {
+      joystickManualOverride = true;
+      setJoystickVisibility(true);
+    }
+  }
+
+  if (coarsePointerQuery) {
+    const listener = () => updateAutoJoystickVisibility();
+    if (typeof coarsePointerQuery.addEventListener === "function") {
+      coarsePointerQuery.addEventListener("change", listener);
+    } else if (typeof coarsePointerQuery.addListener === "function") {
+      coarsePointerQuery.addListener(listener);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", updateAutoJoystickVisibility);
+    window.addEventListener("orientationchange", updateAutoJoystickVisibility);
+    const firstTouchListener = () => {
+      handleFirstTouch();
+      window.removeEventListener("touchstart", firstTouchListener, false);
+    };
+    window.addEventListener("touchstart", firstTouchListener, false);
+  }
+
+  updateAutoJoystickVisibility();
+
   const modelConfigs = [
+    // type optional, otomatis ditebak dari ekstensi file kalau tidak diisi
     // Gunakan rotate: { enabled: true, axis: { x:0, y:1, z:0 }, speed: 15 } untuk animasi putar kustom
     // Gunakan orbit: { enabled: true, targetName: "earth", radius: 260, height: 60, speed: 20, faceTarget: true } untuk membuat objek mengelilingi target
     {
@@ -238,7 +303,7 @@
     //   receiveShadow: true,
     // },
   ];
-  
+
   const imageConfigs = [
     // { url: "BimaJPG.jpg", position: { x: 20, y: 12, z: 0 }, width: 15 }
   ];
@@ -292,6 +357,14 @@
   const cameraLerpFactor = 0.08;
 
   document.addEventListener("keydown", event => {
+    if (event.code === "KeyJ" && !event.repeat) {
+      const currentlyVisible = document.body.classList.contains("show-joystick");
+      joystickManualOverride = !currentlyVisible;
+      setJoystickVisibility(joystickManualOverride);
+      keys[event.code] = false;
+      event.preventDefault();
+      return;
+    }
     keys[event.code] = true;
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","KeyA","KeyD","KeyW","KeyS"].includes(event.code)) {
       event.preventDefault();
@@ -299,6 +372,11 @@
   });
 
   document.addEventListener("keyup", event => {
+    if (event.code === "KeyJ") {
+      keys[event.code] = false;
+      event.preventDefault();
+      return;
+    }
     keys[event.code] = false;
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","KeyA","KeyD","KeyW","KeyS"].includes(event.code)) {
       event.preventDefault();
@@ -1592,4 +1670,3 @@
 </script>
 </body>
 </html>
-
