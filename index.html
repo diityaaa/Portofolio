@@ -103,6 +103,7 @@
   const coarsePointerQuery = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(hover: none) and (pointer: coarse)") : null;
   let joystickManualOverride = null;
   let joystickAutoVisible = false;
+  let joystickTouchActivated = false;
 
   function computeAutoJoystickVisibility() {
     if (coarsePointerQuery && coarsePointerQuery.matches) return true;
@@ -134,6 +135,7 @@
   }
 
   function handleFirstTouch() {
+    joystickTouchActivated = true;
     if (joystickManualOverride === null) {
       joystickManualOverride = true;
       setJoystickVisibility(true);
@@ -351,9 +353,14 @@
   const maxAirSpeed = 0.55;
 
   const pixelRatioLimit = 1.6;
-  const cameraOffset = new THREE.Vector2(30, 18);
-  const cameraLookAtOffset = new THREE.Vector2(8, 4);
-  const cameraDistanceRange = { min: 120, max: 180 };
+  const cameraOffsetDesktop = new THREE.Vector2(30, 18);
+  const cameraOffsetMobile = new THREE.Vector2(26, 28);
+  const cameraLookAtDesktop = new THREE.Vector2(8, 4);
+  const cameraLookAtMobile = new THREE.Vector2(6, 9);
+  const cameraDistanceRanges = {
+    desktop: { min: 120, max: 180 },
+    mobile: { min: 160, max: 240 }
+  };
   const cameraLerpFactor = 0.08;
 
   document.addEventListener("keydown", event => {
@@ -1145,10 +1152,21 @@
     updateJoystickVisual(0, 0);
   }
 
+  function shouldUseMobileCamera() {
+    if (joystickAutoVisible) return true;
+    if (joystickTouchActivated) return true;
+    return false;
+  }
+
+  function getActiveCameraRange() {
+    return shouldUseMobileCamera() ? cameraDistanceRanges.mobile : cameraDistanceRanges.desktop;
+  }
+
   function getTargetCameraZ() {
     const aspect = window.innerWidth / window.innerHeight;
     const normalized = THREE.MathUtils.clamp((aspect - 0.85) / 1.4, 0, 1);
-    return THREE.MathUtils.lerp(cameraDistanceRange.min, cameraDistanceRange.max, normalized);
+    const range = getActiveCameraRange();
+    return THREE.MathUtils.lerp(range.min, range.max, normalized);
   }
 
   function updateRocket() {
@@ -1378,16 +1396,19 @@
   function updateCamera() {
     if (!rocket) return;
 
-    const targetX = rocket.position.x + cameraOffset.x;
-    const targetY = rocket.position.y + cameraOffset.y;
+    const mobileCamera = shouldUseMobileCamera();
+    const offset = mobileCamera ? cameraOffsetMobile : cameraOffsetDesktop;
+    const lookAtOffset = mobileCamera ? cameraLookAtMobile : cameraLookAtDesktop;
+    const targetX = rocket.position.x + offset.x;
+    const targetY = rocket.position.y + offset.y;
     camera.position.x += (targetX - camera.position.x) * cameraLerpFactor;
     camera.position.y += (targetY - camera.position.y) * cameraLerpFactor;
     const desiredZ = getTargetCameraZ();
     camera.position.z += (desiredZ - camera.position.z) * cameraLerpFactor;
 
     camera.lookAt(
-      rocket.position.x + cameraLookAtOffset.x,
-      rocket.position.y + cameraLookAtOffset.y,
+      rocket.position.x + lookAtOffset.x,
+      rocket.position.y + lookAtOffset.y,
       rocket.position.z
     );
 
@@ -1670,3 +1691,61 @@
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
